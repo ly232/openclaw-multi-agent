@@ -93,18 +93,20 @@ TRACE_EVENTS = "SELECT * FROM trace_events WHERE interaction_id = ? ORDER BY seq
 
 
 class Database:
-    def __init__(self, path: str = "~/.openclaw/observability.duckdb"):
+    def __init__(self, path: str = "~/.openclaw/observability.duckdb", read_only: bool = False):
         self._path = path
+        self._read_only = read_only
         self._conn: duckdb.DuckDBPyConnection | None = None
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
         if self._conn is None:
-            self._conn = duckdb.connect(str(self._path))
-            for stmt in SCHEMA_SQL.split(";"):
-                s = stmt.strip()
-                if s:
-                    self._conn.execute(s)
+            self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
+            if not self._read_only:
+                for stmt in SCHEMA_SQL.split(";"):
+                    s = stmt.strip()
+                    if s:
+                        self._conn.execute(s)
         return self._conn
 
     def close(self) -> None:
@@ -153,18 +155,17 @@ class Database:
         )
 
 
-_db: Database | None = None
+_db_instances: dict[tuple, Database] = {}
 
 
-def get_db() -> Database:
-    global _db
-    if _db is None:
-        _db = Database()
-    return _db
+def get_db(path: str | None = None, read_only: bool = False) -> Database:
+    key = (path, read_only)
+    if key not in _db_instances:
+        _db_instances[key] = Database(path or "~/.openclaw/observability.duckdb", read_only=read_only)
+    return _db_instances[key]
 
 
 def close_db() -> None:
-    global _db
-    if _db is not None:
-        _db.close()
-        _db = None
+    for db in _db_instances.values():
+        db.close()
+    _db_instances.clear()

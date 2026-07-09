@@ -11,7 +11,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 def dicts(sql: str, *params):
-    db = get_db()
+    db = get_db(read_only=True)
     rows = db.conn.execute(sql, params).fetchall()
     cols = [d[0] for d in db.conn.description]
     return [dict(zip(cols, r)) for r in rows]
@@ -65,20 +65,23 @@ class EvalRequest(BaseModel):
 
 @app.post("/api/messages/{message_id}/evaluate")
 def evaluate_message(message_id: str, req: EvalRequest):
-    from database import get_db
     import uuid
-    db = get_db()
-    db.insert_evaluation({
-        "evaluation_id": str(uuid.uuid4()),
-        "interaction_id": message_id,
-        "evaluator_model": req.evaluator_model,
-        "prompt_version": "v1",
-        "correctness": req.correctness,
-        "relevance": req.relevance,
-        "completeness": req.completeness,
-        "clarity": req.clarity,
-        "overall": req.overall,
-    })
+    from database import Database as TmpDB
+    tmp = TmpDB(read_only=False)
+    try:
+        tmp.insert_evaluation({
+            "evaluation_id": str(uuid.uuid4()),
+            "interaction_id": message_id,
+            "evaluator_model": req.evaluator_model,
+            "prompt_version": "v1",
+            "correctness": req.correctness,
+            "relevance": req.relevance,
+            "completeness": req.completeness,
+            "clarity": req.clarity,
+            "overall": req.overall,
+        })
+    finally:
+        tmp.close()
     return {"ok": True}
 
 

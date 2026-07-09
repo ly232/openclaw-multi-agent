@@ -1,4 +1,20 @@
-"""Log collector daemon: watches OpenClaw trajectory files, ingests into DuckDB."""
+"""Log collector daemon: watches OpenClaw trajectory files, ingests into DuckDB.
+
+Example usagae:
+
+# One-shot run:
+uv run python collector.py --once
+
+# Contineous run with logging to stdout:
+uv run python collector.py
+
+# Contineous run as a daemon process:
+nohup uv run python collector.py > ~/.openclaw/observability/collector.log 2>&1 &
+echo $! > ~/.openclaw/observability/collector.pid
+
+# Stop daemon with:
+kill $(cat ~/.openclaw/observability/collector.pid)
+"""
 
 import json, os, time, uuid, glob
 from pathlib import Path
@@ -147,16 +163,19 @@ def prune_old_data(db: Database, retention_days: int = 7) -> int:
     result = db.conn.execute(
         f"DELETE FROM interactions WHERE timestamp < now() - INTERVAL '{retention_days} days'"
     )
-    return db.conn.execute("SELECT changes()").fetchone()[0]
+    return result.rowcount
 
 
 def run_loop() -> None:
-    db = get_db()
     print(f"[collector] Started. Polling every {POLL_INTERVAL}s...")
     while True:
-        n = collect_once(db)
-        pruned = prune_old_data(db)
-        if pruned:
+        db = Database(read_only=False)
+        try:
+            n = collect_once(db)
+            pruned = prune_old_data(db)
+        finally:
+            db.close()
+        if pruned > 0:
             print(f"[collector] Pruned {pruned} old interaction(s)")
         if n:
             print(f"[collector] Ingested {n} interactions at {datetime.now().isoformat()}")
@@ -176,9 +195,6 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
         db = get_db()
         n = collect_once(db)
-        pruned = prune_old_data(db)
-        if pruned:
-            print(f"[collector] Pruned {pruned} old interaction(s)")
         print(f"Ingested {n} interaction(s)")
     elif len(sys.argv) > 1 and sys.argv[1] == "--reset":
         pass  # already handled above
