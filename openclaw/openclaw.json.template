@@ -1,0 +1,92 @@
+{
+  // =========================================================================
+  // OpenClaw Multi-Agent Configuration — Template
+  // =========================================================================
+  // This is a template. {{HOME}} is replaced with your home directory.
+  //
+  // Usage:
+  //   ./openclaw/generate-config.sh              # print to stdout
+  //   ./openclaw/generate-config.sh --output     # write to ~/.openclaw/openclaw.json
+  //   ./openclaw/generate-config.sh --merge      # merge into existing config (print instructions)
+  // =========================================================================
+
+  "agents": {
+    "defaults": {
+      "workspace": "{{HOME}}/.openclaw/workspace",
+      "model": {
+        "primary": "deepseek/deepseek-v4-flash"
+      }
+    },
+
+    // ---- Specialist Agents ----
+    "list": [
+      {
+        "id": "orchestrator",
+        "name": "Nexus Orchestrator",
+        "workspace": "{{HOME}}/.openclaw/workspaces/orchestrator",
+        "agentDir": "{{HOME}}/.openclaw/agents/orchestrator/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      },
+      {
+        "id": "coding",
+        "name": "Coder",
+        "workspace": "{{HOME}}/.openclaw/workspaces/coding",
+        "agentDir": "{{HOME}}/.openclaw/agents/coding/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      },
+      {
+        "id": "research",
+        "name": "Scholar",
+        "workspace": "{{HOME}}/.openclaw/workspaces/research",
+        "agentDir": "{{HOME}}/.openclaw/agents/research/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      },
+      {
+        "id": "general",
+        "name": "Atlas",
+        "workspace": "{{HOME}}/.openclaw/workspaces/general",
+        "agentDir": "{{HOME}}/.openclaw/agents/general/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      }
+    ]
+  },
+
+  // ---- Routing: All WeChat → Orchestrator ----
+  "bindings": [
+    {
+      "agentId": "orchestrator",
+      "match": {
+        "channel": "openclaw-weixin",
+        "accountId": "*"
+      }
+    }
+  ],
+
+  // ---- Tool Settings ----
+  "tools": {
+    "profile": "coding",
+    "web": {
+      "search": {
+        "provider": "duckduckgo",
+        "enabled": true
+      }
+    },
+    // Enable cross-agent messaging
+    "agentToAgent": {
+      "enabled": true
+    }
+  },
+
+  // ---- Session Isolation ----
+  "session": {
+    "dmScope": "per-account-channel-peer"
+  }
+}

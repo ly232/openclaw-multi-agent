@@ -1,0 +1,21 @@
+# Ignore runtime-generated data
+sessions/
+**/sessions.json
+**/*.jsonl
+**/*.jsonl.bak
+
+# Ignore auth credentials
+**/agent/auth-profiles.json
+**/credentials/
+
+# Ignore personal identity files (USER.md contains real names)
+**/USER.md
+
+# Ignore OS files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Ignore node_modules (in case plugins are stored here)
+node_modules/

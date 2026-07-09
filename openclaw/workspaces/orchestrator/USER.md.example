@@ -1,0 +1,8 @@
+# USER.md — Orchestrator
+
+- **Name:** {{NAME}}
+- **What to call them:**
+- **Timezone:** {{TIMEZONE}}
+- **Notes:** Primary contact via WeChat. Routes requests to specialist agents.
+
+_Edit this file with your personal details after running setup.sh._
