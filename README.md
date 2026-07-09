@@ -54,6 +54,29 @@ This lets you review, rollback, and sync config changes across machines. Session
 
 ---
 
+### Run the Observability Dashboard
+
+```bash
+# 1. Install Python deps with uv
+uv sync
+cd observability/backend && uv sync
+
+# 2. Run the collector (ingests trajectory files into DuckDB)
+uv run python collector.py --once
+# Or run as daemon: uv run python collector.py
+
+# 3. Start the API server (terminal 1)
+uv run python server.py
+
+# 4. Start the frontend (terminal 2)
+cd ../frontend && npm install && npm run dev
+
+# Open http://127.0.0.1:5173
+```
+
+See `observability/README.md` for full deployment options (LaunchAgent, systemd, cron).
+
+
 ## Key Design Decisions in This Implementation
 
 ### Orchestrator Uses `sessions_send` (Not `sessions_spawn`)
