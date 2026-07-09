@@ -14,6 +14,18 @@ echo $! > ~/.openclaw/observability/collector.pid
 
 # Stop daemon with:
 kill $(cat ~/.openclaw/observability/collector.pid)
+
+Quick note on duckdb locking:
+
+  ┌────────────────┐      shared read lock      ┌──────────────────┐                                                                                                               
+  │  Server (GET)  │ ─────────────────────────→ │  observability   │                                                                                                              
+  │  (read_only)   │                            │   .duckdb        │                                                                                                              
+  └────────────────┘                            │                  │                                                                                                             
+                                                │  ↑ write lock    │                                                                                                              
+  ┌────────────────┐     exclusive write lock   │  ↓ shared read   │                                                                                                              
+  │  Collector     │  ────────────────────────→ │                  │                                                                                                             
+  │  (read_write)  │                            └──────────────────┘                                                                                                            
+  └────────────────┘
 """
 
 import json, os, time, uuid, glob

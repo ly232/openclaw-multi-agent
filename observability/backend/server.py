@@ -1,4 +1,17 @@
-"""FastAPI server for the observability dashboard."""
+"""FastAPI server for the observability dashboard.
+
+Quick note on duckdb locking:
+
+  ┌────────────────┐      shared read lock      ┌──────────────────┐                                                                                                               
+  │  Server (GET)  │ ─────────────────────────→ │  observability   │                                                                                                              
+  │  (read_only)   │                            │   .duckdb        │                                                                                                              
+  └────────────────┘                            │                  │                                                                                                             
+                                                │  ↑ write lock    │                                                                                                              
+  ┌────────────────┐     exclusive write lock   │  ↓ shared read   │                                                                                                              
+  │  Collector     │  ────────────────────────→ │                  │                                                                                                             
+  │  (read_write)  │                            └──────────────────┘                                                                                                            
+  └────────────────┘
+"""
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
