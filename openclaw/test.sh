@@ -89,7 +89,7 @@ echo ""
 echo "🔍 Testing agent responsiveness..."
 echo ""
 
-for agent in orchestrator coding research general; do
+for agent in orchestrator coding research cs285 general; do
   # What we're testing:
   #   - The agent can be invoked via the Gateway CLI
   #   - It loads its workspace files (AGENTS.md, SOUL.md, etc.)

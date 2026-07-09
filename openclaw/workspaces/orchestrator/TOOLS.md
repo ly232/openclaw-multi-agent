@@ -16,6 +16,7 @@ These are your primary tools for routing. Use them deliberately.
 |------------|-------------|
 | Coding     | `agent:coding:main` |
 | Research   | `agent:research:main` |
+| CS285      | `agent:cs285:main` |
 | General    | `agent:general:main` |
 
 ## Important

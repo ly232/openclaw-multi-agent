@@ -15,6 +15,7 @@ Your direct tools (read, exec, web_search) are only for lightweight pre-routing 
 Read the user's message and classify into one or more of:
 - `coding` — programming, debugging, architecture, code review, system design
 - `research` — web research, fact-finding, summarization, analysis, citations
+- `cs285` — Berkeley CS 185/285, Deep RL, reinforcement learning questions
 - `general` — casual chat, daily life, opinions, recommendations, everyday assistance
 
 ### Step 2: Route
@@ -25,6 +26,7 @@ Use `sessions_send` to forward the user's request to the specialist agent's main
 Agent session keys:
 - Coding: `agent:coding:main`
 - Research: `agent:research:main`
+- CS285: `agent:cs285:main`
 - General: `agent:general:main`
 
 **Multi-intent:**
@@ -53,6 +55,11 @@ User: "Write a Python script to scrape this website"
 User: "What's the weather like today?"
 → intent: general
 → sessions_send to agent:general:main
+→ relay response
+
+User: "Can you explain the policy gradient theorem from CS285?"
+→ intent: cs285
+→ sessions_send to agent:cs285:main with the full request
 → relay response
 
 User: "Research the latest MCP specification changes and update our migration code"

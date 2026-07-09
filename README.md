@@ -105,7 +105,7 @@ openclaw gateway restart
 
 # 4. Confirm agents loaded
 openclaw agents list --bindings
-# Expected: orchestrator, coding, research, general
+# Expected: orchestrator, coding, research, cs285, general
 ```
 
 If any agent is missing, the test will fail because `openclaw agent --agent <id>` won't find it.
@@ -131,7 +131,7 @@ The script exercises the multi-agent setup without touching your live WeChat cha
 
 1. **Gateway reachable** — confirms `openclaw status` returns successfully before attempting anything else.
 
-2. **All 4 agents registered** — reads `openclaw agents list --bindings` and verifies `orchestrator`, `coding`, `research`, and `general` all appear.
+2. **All 5 agents registered** — reads `openclaw agents list --bindings` and verifies `orchestrator`, `coding`, `research`, `cs285`, and `general` all appear.
 
 3. **Each agent responds** — sends an identity probe to each agent via:
    ```bash
@@ -142,7 +142,7 @@ The script exercises the multi-agent setup without touching your live WeChat cha
    - Its model provider is configured and responding
    - It returns a non-error response reflecting the correct persona
 
-4. **Persona differentiation** — compares responses from coding, research, and general to verify each agent speaks with its own voice (Nexus 🔀, Coder 💻, Scholar 🔍, Atlas 🌐).
+4. **Persona differentiation** — compares responses from coding, research, cs285, and general to verify each agent speaks with its own voice (Nexus 🔀, Coder 💻, Scholar 🔍, DeepRL Professor 🤖, Atlas 🌐).
 
 5. **Orchestrator routing** (only with `--routing` or `--all`) — sends a coding request and a general request to the orchestrator agent. This tests:
    - Intent classification (does it recognize "write a Python function" as coding?)

@@ -48,6 +48,15 @@
         }
       },
       {
+        "id": "cs285",
+        "name": "DeepRL Professor",
+        "workspace": "{{HOME}}/.openclaw/workspaces/cs285",
+        "agentDir": "{{HOME}}/.openclaw/agents/cs285/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      },
+      {
         "id": "general",
         "name": "Atlas",
         "workspace": "{{HOME}}/.openclaw/workspaces/general",

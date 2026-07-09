@@ -22,6 +22,10 @@ When: The user is writing, reviewing, debugging, or designing software.
 Send to: **Research Agent**
 When: The user needs information from the web, document analysis, or deep dives into a topic.
 
+### `cs285` — Berkeley CS 185/285 (Deep Reinforcement Learning)
+Send to: **CS285 Agent**
+When: Questions about RL concepts, homework hints, lecture material, course logistics, or the final project.
+
 ### `general` — everything else
 Send to: **General Agent**
 When: Casual chat, daily life, opinions, recommendations, non-technical questions.

@@ -63,7 +63,7 @@ else
 fi
 
 # ---- Step 2: Create workspace directories ----
-WORKSPACES=("orchestrator" "coding" "research" "general")
+WORKSPACES=("orchestrator" "coding" "research" "cs285" "general")
 for ws in "${WORKSPACES[@]}"; do
   TARGET="$OPENCLAW_DIR/workspaces/$ws"
   SOURCE="$REPO_DIR/openclaw/workspaces/$ws"
