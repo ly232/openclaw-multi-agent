@@ -23,16 +23,25 @@ export default function Dashboard() {
 
     const fetch = () => {
       setLoading(true)
+      console.log('[dashboard] fetch cycle starting')
+      const start = Date.now()
       Promise.all([
         getSummary(),
         getAccounts(5),
         getAgents(),
       ]).then(([summary, accounts, agents]) => {
-        if (!mounted.current) return
+        const elapsed = Date.now() - start
+        if (!mounted.current) { console.log('[dashboard] unmounted, discarding'); return }
+        console.log(`[dashboard] data received in ${elapsed}ms:`, {
+          summary: summary ? `${summary.interactions} interactions` : null,
+          accounts: accounts ? `${accounts.length} accounts` : null,
+          agents: agents ? `${agents.agents?.length || 0} agents` : null,
+        })
         if (summary && typeof summary.interactions === 'number') {
           setS(summary)
           setConnected(true)
         } else {
+          console.warn('[dashboard] summary missing interactions key:', summary)
           setConnected(false)
         }
         setAccts(accounts ?? [])

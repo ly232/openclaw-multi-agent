@@ -14,14 +14,20 @@ async function fetchWithTimeout(url: string, options?: RequestInit): Promise<Res
 async function get<T>(path: string, retries = 3): Promise<T | null> {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
+      console.log(`[fetch] GET ${path} attempt ${attempt + 1}/${retries}`)
       const res = await fetchWithTimeout(`${API}${path}`)
+      console.log(`[fetch] GET ${path} → HTTP ${res.status}`)
       if (!res.ok) {
         console.warn(`GET ${path}: ${res.status} (attempt ${attempt + 1}/${retries})`)
+        const body = await res.text().catch(() => '')
+        console.warn(`GET ${path} body:`, body.slice(0, 200))
         if (attempt === retries - 1) return null
         await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
         continue
       }
-      return res.json()
+      const data = await res.json()
+      console.log(`[fetch] GET ${path} → data received:`, typeof data, Array.isArray(data) ? `len=${data.length}` : Object.keys(data))
+      return data
     } catch (err) {
       console.warn(`GET ${path} error:`, err, `(attempt ${attempt + 1}/${retries})`)
       if (attempt === retries - 1) return null
