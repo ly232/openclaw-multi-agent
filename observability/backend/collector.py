@@ -180,7 +180,7 @@ def parse_trajectory(filepath: str, state: dict) -> int:
 
             if event_type == "prompt.submitted":
                 prompt = event.get("data", {}).get("prompt", "")
-                if prompt:
+                if isinstance(prompt, str) and prompt:
                     pending_prompt_user_msg = _extract_last_prompt_line(prompt)
                 agents_seen_in_turn.clear()
                 pos = f.tell()
