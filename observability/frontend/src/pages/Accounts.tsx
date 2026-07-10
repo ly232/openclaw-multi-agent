@@ -52,7 +52,7 @@ export default function Accounts() {
               </tr></thead>
               <tbody>{msgs.map((m, i) => (
                 <tr key={i} className="border-b">
-                  <td className="py-2">{new Date(m.timestamp).toLocaleTimeString()}</td>
+                  <td className="py-2 text-nowrap">{new Date(m.timestamp).toLocaleString()}</td>
                   <td className="py-2 truncate max-w-xs">{m.user_message}</td>
                   <td className="py-2">{m.agent}</td>
                   <td className="py-2">{m.tokens}</td>
