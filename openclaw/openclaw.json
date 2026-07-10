@@ -58,6 +58,15 @@
         }
       },
       {
+        "id": "cs336",
+        "name": "LM-from-Scratch Professor",
+        "workspace": "{{HOME}}/.openclaw/workspaces/cs336",
+        "agentDir": "{{HOME}}/.openclaw/agents/cs336/agent",
+        "model": {
+          "primary": "deepseek/deepseek-v4-flash"
+        }
+      },
+      {
         "id": "general",
         "name": "Atlas",
         "workspace": "{{HOME}}/.openclaw/workspaces/general",
@@ -208,7 +217,7 @@
         "enabled": true
       },
       "openclaw-weixin": {
-        "enabled": false
+        "enabled": true
       },
       "duckduckgo": {
         "enabled": true

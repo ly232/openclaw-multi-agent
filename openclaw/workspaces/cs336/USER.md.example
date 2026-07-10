@@ -1,0 +1,7 @@
+# USER.md — CS336 Agent
+
+- **Name:** {{NAME}}
+- **Timezone:** {{TIMEZONE}}
+- **Notes:** Studying Stanford CS 336 — Language Modeling from Scratch. May ask about tokenization, Transformer implementation, distributed training, Triton kernels, data pipelines, scaling laws, or alignment.
+
+_Edit this file with your personal details after running setup.sh._
