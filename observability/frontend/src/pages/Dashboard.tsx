@@ -17,6 +17,9 @@ export default function Dashboard() {
   const mounted = useRef(true)
 
   useEffect(() => {
+    // Reset mounted flag — in Strict Mode the ref persists across mounts.
+    mounted.current = true
+
     const fetch = () => {
       setLoading(true)
       Promise.all([
