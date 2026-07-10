@@ -65,9 +65,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def dicts(sql: str, *params):
     """Execute a read-only query, returning a list of dicts."""
     try:
-        rows = get_db().conn.execute(sql, params).fetchall()
-        cols = [d[0] for d in get_db().conn.description]
-        return [dict(zip(cols, r)) for r in rows]
+        conn = get_db().conn
+        result = conn.execute(sql, params)
+        cols = [d[0] for d in result.description]
+        return [dict(zip(cols, r)) for r in result.fetchall()]
     except Exception:
         logger.exception("Query failed: %r params=%s", sql, params)
         return []
