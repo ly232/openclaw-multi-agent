@@ -1,9 +1,20 @@
 const API = "/api"
+const FETCH_TIMEOUT = 5_000
+
+async function fetchWithTimeout(url: string, options?: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 async function get<T>(path: string, retries = 3): Promise<T | null> {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const res = await fetch(`${API}${path}`)
+      const res = await fetchWithTimeout(`${API}${path}`)
       if (!res.ok) {
         console.warn(`GET ${path}: ${res.status} (attempt ${attempt + 1}/${retries})`)
         if (attempt === retries - 1) return null
@@ -12,7 +23,7 @@ async function get<T>(path: string, retries = 3): Promise<T | null> {
       }
       return res.json()
     } catch (err) {
-      console.warn(`GET ${path} network error:`, err, `(attempt ${attempt + 1}/${retries})`)
+      console.warn(`GET ${path} error:`, err, `(attempt ${attempt + 1}/${retries})`)
       if (attempt === retries - 1) return null
       await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
     }
@@ -23,7 +34,7 @@ async function get<T>(path: string, retries = 3): Promise<T | null> {
 async function post<T>(path: string, body: unknown): Promise<T | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await fetch(`${API}${path}`, {
+      const res = await fetchWithTimeout(`${API}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -36,7 +47,7 @@ async function post<T>(path: string, body: unknown): Promise<T | null> {
       }
       return res.json()
     } catch (err) {
-      console.warn(`POST ${path} network error:`, err, `(attempt ${attempt + 1}/3)`)
+      console.warn(`POST ${path} error:`, err, `(attempt ${attempt + 1}/3)`)
       if (attempt === 2) return null
       await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
     }
