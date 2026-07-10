@@ -2,43 +2,81 @@
 
 ## Quick Start
 
-### Deploy on This Machine
+> ⚠️ **Security first** — This repo is public. No API keys, tokens, or usernames
+> are stored in any file here. All sensitive values are read from your local
+> `~/.openclaw/` config or prompted at setup time.
+
+### Prerequisites
+
+- OpenClaw installed (`brew install openclaw`)
+- DeepSeek API key (or another LLM provider configured)
+- `openclaw onboard` already run (creates the baseline `~/.openclaw/`)
+
+### One-Shot Deploy (On This Machine)
 
 ```bash
 cd ~/github/openclaw-multi-agent
 
-# 1. Copy workspace files and create agent directories
+# Full setup: workspace files + config + models.json + gateway restart
 ./openclaw/setup.sh --apply
-
-# 2. Automatically merge the multi-agent config into your existing openclaw.json
-./openclaw/merge-config.sh --apply
-# (runs dry-run first: ./openclaw/merge-config.sh)
-
-# 3. Restart the gateway
-openclaw gateway restart
-
-# 4. Verify
-openclaw agents list --bindings
-openclaw channels status --probe
 ```
 
-Or see what would change:
+This single command does everything:
+1. ✅ Backs up existing `~/.openclaw/openclaw.json`
+2. ✅ Copies workspace identity files (AGENTS.md, SOUL.md, etc.)
+3. ✅ Generates `openclaw.json` from template + **your local secrets**
+4. ✅ Generates per-agent `models.json` with your API key
+5. ✅ Restarts the Gateway
+
+### Verify
 
 ```bash
-./openclaw/generate-config.sh --diff
+openclaw agents list --bindings
+# Expected: orchestrator (default), coding, research, cs285, general
+
+openclaw channels status --probe
+# Expected: openclaw-weixin — enabled, running
 ```
 
-### Deploy on Another Desktop
+### Deploy on a Fresh Machine
 
 ```bash
 git clone <repo-url>
 cd openclaw-multi-agent
-./openclaw/setup.sh --apply
-./openclaw/merge-config.sh --apply
 
-# Then restart the gateway
-openclaw gateway restart
+# 1. First-time OpenClaw setup (creates baseline ~/.openclaw/)
+openclaw onboard
+
+# 2. Set your API key (required by generate-config.sh)
+export DEEPSEEK_API_KEY='sk-your-deepseek-api-key'
+
+# 3. Deploy multi-agent config
+./openclaw/setup.sh --apply
 ```
+
+### Preview Changes
+
+```bash
+# See the config that would be generated (stdout, safe)
+./openclaw/generate-config.sh
+
+# Diff vs your existing config
+./openclaw/generate-config.sh --diff
+
+# Preview setup actions (dry-run)
+./openclaw/setup.sh
+```
+
+### Avoid Crestodian — Default to Orchestrator
+
+Running `openclaw` alone starts Crestodian (the system setup helper).
+To go straight to the orchestrator, add this alias to `~/.zshrc`:
+
+```bash
+alias openclaw='openclaw tui --session orchestrator:main'
+```
+
+Then `source ~/.zshrc` — now `openclaw` opens the orchestrator TUI directly.
 
 ### Recommended: Version-Track Your Config
 
@@ -50,7 +88,9 @@ git add -A
 git commit -m "Initial OpenClaw config snapshot"
 ```
 
-This lets you review, rollback, and sync config changes across machines. Session data and credentials are excluded via `.gitignore`.
+This lets you review, rollback, and sync config changes across machines.
+Session data, credentials, and personal identity files are excluded via
+`.gitignore` — safe to push to a private remote.
 
 ---
 
@@ -117,21 +157,16 @@ This is an evolving implementation. If you iterate on new approaches later — s
 Before running the test, the multi-agent setup must be deployed:
 
 ```bash
-# 1. Copy workspace files to ~/.openclaw
+# One-shot deploy
 ./openclaw/setup.sh --apply
 
-# 2. Auto-merge multi-agent config into ~/.openclaw/openclaw.json
-./openclaw/merge-config.sh --apply
-
-# 3. Restart gateway
-openclaw gateway restart
-
-# 4. Confirm agents loaded
+# Confirm agents loaded
 openclaw agents list --bindings
-# Expected: orchestrator, coding, research, cs285, general
+# Expected: orchestrator (default), coding, research, cs285, general
 ```
 
-If any agent is missing, the test will fail because `openclaw agent --agent <id>` won't find it.
+If any agent is missing, run `./openclaw/setup.sh --apply` again or check
+`openclaw gateway restart`.
 
 ### Quick Smoke Test
 
