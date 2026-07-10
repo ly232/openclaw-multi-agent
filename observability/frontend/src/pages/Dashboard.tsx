@@ -94,7 +94,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={accts}>
                 <XAxis dataKey="account_id" tick={{ fontSize: 11 }} />
-                <YAxis /><Tooltip />
+                <YAxis tickFormatter={v => v >= 1_000_000 ? (v / 1_000_000).toFixed(1) + 'M' : v >= 1_000 ? (v / 1_000).toFixed(0) + 'K' : v} /><Tooltip />
                 <Bar dataKey="tokens" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
