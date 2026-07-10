@@ -5,4 +5,5 @@ description = "OpenClaw Multi-Agent Platform"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28.1",
+    "pytest>=9.1.1",
 ]

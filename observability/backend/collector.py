@@ -69,6 +69,48 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2))
 
 
+def _extract_user_msg(msgs: list) -> str:
+    """Extract the last user role message content from a messages list."""
+    for m in reversed(msgs):
+        if m.get("role") != "user":
+            continue
+        c = m.get("content", "")
+        if isinstance(c, str):
+            return _strip_conversation_info(c[:1000])
+        if isinstance(c, list):
+            for block in c:
+                if block.get("type") == "text":
+                    return _strip_conversation_info(block.get("text", "")[:1000])
+    return ""
+
+
+def _extract_last_prompt_line(prompt: str) -> str:
+    """Extract the last meaningful line from a prompt text as the user message."""
+    lines = [l.rstrip() for l in prompt.split("\n") if l.strip()]
+    return _strip_conversation_info(lines[-1][:1000]) if lines else ""
+
+
+def _parse_session_key(session_key: str) -> tuple:
+    """Parse sessionKey into (agent_id, channel, account_id).
+
+    Format: agent:{agentId}:{channelOrPeer}:{accountId}:...
+    """
+    if not session_key:
+        return "unknown", "unknown", "unknown"
+    parts = session_key.split(":")
+    agent_id = parts[1] if len(parts) >= 2 else "unknown"
+    # parts[2] is the actual channel when it's a well-known name
+    # (e.g. "openclaw-weixin"); if it looks like a TUI session UUID
+    # (starts with "tui-") treat it as webchat.
+    peer = parts[2] if len(parts) >= 3 else ""
+    if peer and not peer.startswith("tui-"):
+        channel = peer
+    else:
+        channel = "webchat" if agent_id == "main" else agent_id
+    account_id = parts[3] if len(parts) >= 4 else "unknown"
+    return agent_id, channel, account_id
+
+
 def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
     last_offset = state.get(filepath, {}).get("offset", 0)
     count = 0
@@ -84,6 +126,13 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
         session_id = Path(filepath).stem
         if session_id.endswith(".trajectory"):
             session_id = session_id.replace(".trajectory", "")
+
+        # Track the latest user-submitted message from prompt.submitted events.
+        # Each prompt.submitted immediately feeds a model.completed, but multiple
+        # model.completed events may share the same context window (e.g. thinking
+        # refinements).  We consume the tracked prompt once per model.completed.
+        pending_prompt_user_msg = ""
+
         pos = f.tell()
         while True:
             line = f.readline()
@@ -94,41 +143,33 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
             except json.JSONDecodeError:
                 pos = f.tell()
                 continue
-            if event.get("type") != "model.completed":
+
+            event_type = event.get("type")
+
+            # Track prompt.submitted — the raw prompt text ends with the latest
+            # user input, giving us the correct per-turn user message.
+            if event_type == "prompt.submitted":
+                prompt = event.get("data", {}).get("prompt", "")
+                if prompt:
+                    pending_prompt_user_msg = _extract_last_prompt_line(prompt)
                 pos = f.tell()
                 continue
+
+            if event_type != "model.completed":
+                pos = f.tell()
+                continue
+
             data = event.get("data", {})
             usage = data.get("usage", {})
             msgs = data.get("messagesSnapshot", [])
 
-            # Extract channel and account from sessionKey
-            session_key = event.get("sessionKey", "")
-            channel = "unknown"
-            account_id = "unknown"
-            if session_key:
-                parts = session_key.split(":")
-                if len(parts) >= 2:
-                    channel = parts[1] if parts[1] != "main" else "webchat"
-                if len(parts) >= 4:
-                    account_id = parts[3]
+            # Extract agent, channel, account from sessionKey (not event.source)
+            agent, channel, account_id = _parse_session_key(event.get("sessionKey", ""))
 
-            user_msg = ""
-            asst_msg = ""
-            for m in msgs:
-                role = m.get("role", "")
-                c = m.get("content", "")
-                txt = ""
-                if isinstance(c, str):
-                    txt = c
-                elif isinstance(c, list):
-                    for block in c:
-                        if block.get("type") == "text":
-                            txt = block.get("text", "")
-                            break
-                if role == "user":
-                    user_msg = _strip_conversation_info(txt[:1000])
-                elif role == "assistant" and not asst_msg:
-                    asst_msg = txt[:1000]
+            # user_message: prefer the tracked prompt_submitted message, then
+            # fall back to the last user role in messagesSnapshot.
+            user_msg = pending_prompt_user_msg or _extract_user_msg(msgs)
+            pending_prompt_user_msg = ""  # consume once
 
             asst_texts = data.get("assistantTexts", [])
             interaction = {
@@ -138,9 +179,9 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
                 "account_id": account_id,
                 "session_id": session_id,
                 "user_message": user_msg or "",
-                "assistant_response": asst_texts[0] if asst_texts else asst_msg,
-                "root_agent": event.get("source", "unknown"),
-                "agents_involved": [event.get("source", "unknown")],
+                "assistant_response": asst_texts[0] if asst_texts else "",
+                "root_agent": agent,
+                "agents_involved": [agent],
                 "input_tokens": usage.get("input", 0),
                 "output_tokens": usage.get("output", 0),
                 "total_tokens": usage.get("total", 0),
