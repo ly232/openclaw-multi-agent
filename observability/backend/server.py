@@ -1,26 +1,19 @@
 """FastAPI server for the observability dashboard.
 
-The collector runs as a daemon thread inside the server process, sharing a
-single DuckDB read-write connection.  This is the only supported way to have
-concurrent readers + writers with DuckDB's native format — cross-process file
-lock contention is avoided entirely since only one process touches the file.
-
-Startup:
-  1. Open the shared DuckDB connection (crashes if DB unreachable).
-  2. Start the collector thread (polls trajectory files every 30s).
-
-Errors are logged via logger.exception() with full tracebacks.
+The collector runs as a daemon thread inside the server process.  HTTP
+handlers use short-lived per-request DuckDB connections to avoid TOCTOU
+races on shared cursor state when multiple threads call .execute()
+concurrently.  The collector uses a separate long-lived connection.
 """
 
 import contextlib
 import logging
 import threading
 import time
-from datetime import datetime, timezone
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from database import get_db, close_db, SUMMARY_7D, TOP_ACCOUNTS, TOP_AGENTS, \
+from database import get_db, get_request_db, close_db, SUMMARY_7D, TOP_ACCOUNTS, TOP_AGENTS, \
     ACCOUNT_MESSAGES, AGENT_INTERACTIONS, AGENT_METRICS, MESSAGE_BY_ID, TRACE_EVENTS
 from collector import collect_once, POLL_INTERVAL
 
@@ -44,9 +37,9 @@ async def lifespan(app: FastAPI):
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
-    # Open the shared database connection (crash on failure).
+    # Open the shared collector connection (crash on failure).
     get_db()
-    logger.info("Database connection opened")
+    logger.info("Database connection opened (collector)")
 
     # Start the collector background thread.
     t = threading.Thread(target=_collector_loop, daemon=True)
@@ -63,15 +56,19 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 def dicts(sql: str, *params):
-    """Execute a read-only query, returning a list of dicts."""
+    """Execute a read-only query on a per-request connection.
+
+    Opens a fresh connection, runs the query, materializes results into
+    Python objects, then closes.  This avoids races on shared cursor state.
+    """
+    db = get_request_db()
     try:
-        conn = get_db().conn
-        result = conn.execute(sql, params)
-        cols = [d[0] for d in result.description]
-        return [dict(zip(cols, r)) for r in result.fetchall()]
+        return db.execute_dicts(sql, *params)
     except Exception:
         logger.exception("Query failed: %r params=%s", sql, params)
         return []
+    finally:
+        db.close()
 
 
 @app.get("/api/dashboard/summary")
@@ -123,7 +120,7 @@ class EvalRequest(BaseModel):
 @app.post("/api/messages/{message_id}/evaluate")
 def evaluate_message(message_id: str, req: EvalRequest):
     import uuid
-    db = get_db()
+    db = get_request_db()
     try:
         db.insert_evaluation({
             "evaluation_id": str(uuid.uuid4()),
@@ -140,50 +137,54 @@ def evaluate_message(message_id: str, req: EvalRequest):
     except Exception:
         logger.exception("Evaluation insert failed")
         return {"ok": False, "error": "database error"}
+    finally:
+        db.close()
 
 
 @app.post("/api/seed")
 def seed_test_data():
-    """Insert a test interaction + trace event (for smoke tests).
-
-    Safe to call multiple times — skips if data already exists.
-    Returns the seeded interaction_id.
-    """
+    """Insert a test interaction + trace event (for smoke tests)."""
     import uuid as _uuid
-    from datetime import timezone as _tz
-    now = datetime.now(_tz.utc)
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     seed_id = str(_uuid.uuid4())
-    db = get_db()
-    db.insert_interaction({
-        "interaction_id": seed_id,
-        "timestamp": now,
-        "channel": "webchat",
-        "account_id": "smoke-test-user",
-        "session_id": "smoke-session",
-        "user_message": "Hello from smoke test",
-        "assistant_response": "Hi! How can I help?",
-        "root_agent": "smoke-test-agent",
-        "agents_involved": ["smoke-test-agent"],
-        "input_tokens": 10,
-        "output_tokens": 20,
-        "total_tokens": 30,
-        "reasoning_tokens": 0,
-        "latency_ms": 123,
-        "status": "ok",
-        "trace_file": "/dev/null",
-        "trace_offset": 0,
-    })
-    db.insert_trace_event({
-        "id": 1,
-        "interaction_id": seed_id,
-        "seq": 1,
-        "ts": int(now.timestamp() * 1000),
-        "agent": "smoke-test-agent",
-        "event_type": "model.completed",
-        "detail": {"model": "deepseek/deepseek-v4-flash"},
-    })
-    logger.info("Seeded test interaction %s", seed_id)
-    return {"interaction_id": seed_id}
+    db = get_request_db()
+    try:
+        db.insert_interaction({
+            "interaction_id": seed_id,
+            "timestamp": now,
+            "channel": "webchat",
+            "account_id": "smoke-test-user",
+            "session_id": "smoke-session",
+            "user_message": "Hello from smoke test",
+            "assistant_response": "Hi! How can I help?",
+            "root_agent": "smoke-test-agent",
+            "agents_involved": ["smoke-test-agent"],
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+            "reasoning_tokens": 0,
+            "latency_ms": 123,
+            "status": "ok",
+            "trace_file": "/dev/null",
+            "trace_offset": 0,
+        })
+        db.insert_trace_event({
+            "id": 1,
+            "interaction_id": seed_id,
+            "seq": 1,
+            "ts": int(now.timestamp() * 1000),
+            "agent": "smoke-test-agent",
+            "event_type": "model.completed",
+            "detail": {"model": "deepseek/deepseek-v4-flash"},
+        })
+        logger.info("Seeded test interaction %s", seed_id)
+        return {"interaction_id": seed_id}
+    except Exception:
+        logger.exception("Seed failed")
+        return {"ok": False, "error": "database error"}
+    finally:
+        db.close()
 
 
 def main():

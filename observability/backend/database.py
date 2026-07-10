@@ -1,12 +1,13 @@
 """DuckDB schema and query builder for the observability dashboard.
 
-Concurrency model: a single read-write connection is shared across all threads
-within the process.  DuckDB supports concurrent readers + writers on the same
-connection via MVCC (appends never conflict).
+Concurrency model: each HTTP handler opens its own DuckDB connection for
+the duration of a single request.  This avoids TOCTOU races on shared
+connection state (cursor description, etc.) when multiple threads call
+.execute() simultaneously.
 
-This connection is opened once at server startup (see server.py lifespan) and
-held until shutdown.  The collector thread and HTTP handler threads all share
-this single connection — no cross-process file lock contention.
+The collector thread uses a separate long-lived connection obtained via
+get_db() — it never contends with short-lived HTTP connections because
+DuckDB supports multiple write-mode connections from the same process.
 """
 
 import json
@@ -109,18 +110,27 @@ class Database:
         self._lock = threading.Lock()
         self._conn: duckdb.DuckDBPyConnection | None = None
 
-    def open(self) -> None:
-        """Open the connection. Idempotent — safe to call multiple times."""
+    def open(self, retries: int = 3, base_delay: float = 0.1) -> None:
+        """Open connection. Retries on lock conflict."""
         if self._conn is not None:
             return
         with self._lock:
             if self._conn is not None:
                 return
-            self._conn = duckdb.connect(str(self._path), read_only=False)
-            for stmt in SCHEMA_SQL.split(";"):
-                s = stmt.strip()
-                if s:
-                    self._conn.execute(s)
+            last_exc = None
+            for attempt in range(retries):
+                try:
+                    self._conn = duckdb.connect(str(self._path), read_only=False)
+                    for stmt in SCHEMA_SQL.split(";"):
+                        s = stmt.strip()
+                        if s:
+                            self._conn.execute(s)
+                    return
+                except duckdb.IOException as e:
+                    last_exc = e
+                    if attempt < retries - 1:
+                        time.sleep(base_delay * (attempt + 1))
+            raise last_exc  # type: ignore
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
@@ -133,6 +143,20 @@ class Database:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
+
+    def execute_dicts(self, sql: str, *params) -> list[dict]:
+        """Execute a query and return results as a list of dicts.
+
+        Materializes column names and rows into Python objects before
+        returning, so the connection can be safely reused or closed.
+        """
+        cur = self.conn.execute(sql, params)
+        # Materialize description into a Python list immediately.
+        # DuckDB's result.description reads lazily from C cursor state
+        # and can be overwritten by concurrent execute() on the same conn.
+        cols = [cur.description[i][0] for i in range(len(cur.description))]
+        rows = cur.fetchall()
+        return [dict(zip(cols, r)) for r in rows]
 
     def insert_interaction(self, row: dict) -> None:
         self.conn.execute(
@@ -186,13 +210,25 @@ _db_lock = threading.Lock()
 
 
 def get_db() -> Database:
+    """Return the shared collector connection (long-lived, read-write)."""
     global _db
     if _db is None:
         with _db_lock:
             if _db is None:
                 _db = Database()
-                _db.open()
+                _db.open(retries=1)  # crash fast on failure
     return _db
+
+
+def get_request_db() -> Database:
+    """Return a fresh connection for a single HTTP request.
+
+    Each call opens a new connection, so concurrent requests don't
+    share cursor state.  The caller MUST close() after use.
+    """
+    db = Database()
+    db.open()
+    return db
 
 
 def close_db() -> None:
