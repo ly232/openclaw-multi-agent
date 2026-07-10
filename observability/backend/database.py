@@ -1,6 +1,17 @@
-"""DuckDB schema and query builder for the observability dashboard."""
+"""DuckDB schema and query builder for the observability dashboard.
+
+Concurrency model: a single read-write connection is shared across all threads
+within the process.  DuckDB supports concurrent readers + writers on the same
+connection via MVCC (appends never conflict).
+
+This connection is opened once at server startup (see server.py lifespan) and
+held until shutdown.  The collector thread and HTTP handler threads all share
+this single connection — no cross-process file lock contention.
+"""
 
 import json
+import time
+import threading
 import duckdb
 
 SCHEMA_SQL = """
@@ -93,26 +104,35 @@ TRACE_EVENTS = "SELECT * FROM trace_events WHERE interaction_id = ? ORDER BY seq
 
 
 class Database:
-    def __init__(self, path: str = "~/.openclaw/observability.duckdb", read_only: bool = False):
+    def __init__(self, path: str = "~/.openclaw/observability.duckdb", read_only: bool | None = None):
         self._path = path
-        self._read_only = read_only
+        self._lock = threading.Lock()
         self._conn: duckdb.DuckDBPyConnection | None = None
+
+    def open(self) -> None:
+        """Open the connection. Idempotent — safe to call multiple times."""
+        if self._conn is not None:
+            return
+        with self._lock:
+            if self._conn is not None:
+                return
+            self._conn = duckdb.connect(str(self._path), read_only=False)
+            for stmt in SCHEMA_SQL.split(";"):
+                s = stmt.strip()
+                if s:
+                    self._conn.execute(s)
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
         if self._conn is None:
-            self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
-            if not self._read_only:
-                for stmt in SCHEMA_SQL.split(";"):
-                    s = stmt.strip()
-                    if s:
-                        self._conn.execute(s)
+            self.open()
         return self._conn
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def insert_interaction(self, row: dict) -> None:
         self.conn.execute(
@@ -154,18 +174,29 @@ class Database:
              row.get("completeness"), row.get("clarity"), row.get("overall")),
         )
 
+    def prune_old_data(self, retention_days: int = 7) -> int:
+        result = self.conn.execute(
+            f"DELETE FROM interactions WHERE timestamp < now() - INTERVAL '{retention_days} days'"
+        )
+        return result.rowcount
 
-_db_instances: dict[tuple, Database] = {}
+
+_db: Database | None = None
+_db_lock = threading.Lock()
 
 
-def get_db(path: str | None = None, read_only: bool = False) -> Database:
-    key = (path, read_only)
-    if key not in _db_instances:
-        _db_instances[key] = Database(path or "~/.openclaw/observability.duckdb", read_only=read_only)
-    return _db_instances[key]
+def get_db() -> Database:
+    global _db
+    if _db is None:
+        with _db_lock:
+            if _db is None:
+                _db = Database()
+                _db.open()
+    return _db
 
 
 def close_db() -> None:
-    for db in _db_instances.values():
-        db.close()
-    _db_instances.clear()
+    global _db
+    if _db is not None:
+        _db.close()
+        _db = None

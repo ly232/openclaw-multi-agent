@@ -1,19 +1,47 @@
 const API = "/api"
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API}${path}`)
-  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
-  return res.json()
+async function get<T>(path: string, retries = 3): Promise<T | null> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(`${API}${path}`)
+      if (!res.ok) {
+        console.warn(`GET ${path}: ${res.status} (attempt ${attempt + 1}/${retries})`)
+        if (attempt === retries - 1) return null
+        await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
+        continue
+      }
+      return res.json()
+    } catch (err) {
+      console.warn(`GET ${path} network error:`, err, `(attempt ${attempt + 1}/${retries})`)
+      if (attempt === retries - 1) return null
+      await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
+    }
+  }
+  return null
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
-  return res.json()
+async function post<T>(path: string, body: unknown): Promise<T | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${API}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        console.warn(`POST ${path}: ${res.status} (attempt ${attempt + 1}/3)`)
+        if (attempt === 2) return null
+        await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
+        continue
+      }
+      return res.json()
+    } catch (err) {
+      console.warn(`POST ${path} network error:`, err, `(attempt ${attempt + 1}/3)`)
+      if (attempt === 2) return null
+      await new Promise(r => setTimeout(r, 300 * (attempt + 1)))
+    }
+  }
+  return null
 }
 
 export interface Summary {

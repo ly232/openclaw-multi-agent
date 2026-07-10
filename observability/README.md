@@ -5,10 +5,30 @@ A standalone web application for operational visibility into your OpenClaw multi
 ## Architecture
 
 ```text
-OpenClaw Runtime  →  Log Collector  →  DuckDB  →  FastAPI  →  React Dashboard
+┌─────────────────────────────────────────────────────┐
+│                 Server Process                        │
+│                                                       │
+│  ┌──────────────────────┐  ┌──────────────────────┐  │
+│  │   FastAPI Handlers   │  │  Collector Thread    │  │
+│  │   (thread pool)      │  │  (daemon, polls      │  │
+│  │                      │  │   every 30s)         │  │
+│  └─────────┬────────────┘  └──────────┬───────────┘  │
+│            │                          │              │
+│            └──────────┬───────────────┘              │
+│                       ▼                              │
+│        ┌─────────────────────────────┐               │
+│        │  Single DuckDB Connection  │               │
+│        │  (read-write, shared)      │               │
+│        └─────────────────────────────┘               │
+└─────────────────────────────────────────────────────┘
+                           │
+                           ▼
+              DuckDB file (~/.openclaw/observability.duckdb)
 ```
 
-The **Log Collector** reads `*.trajectory.jsonl` files from your OpenClaw session store, parses them into structured interaction records, and inserts them into DuckDB. The **FastAPI** server serves a JSON API that the **React** frontend consumes.
+The **Collector** runs as a daemon thread **inside** the FastAPI server process. Both share a single read-write DuckDB connection. This avoids cross-process file lock contention, which DuckDB's native format does not support (only one writer process allowed). DuckDB handles concurrent reads and writes on the same connection within a single process via MVCC.
+
+The Collector reads `*.trajectory.jsonl` files from `~/.openclaw/agents/*/sessions/`, parses them into structured interaction records, and inserts them into DuckDB. The FastAPI server serves a JSON API that the React frontend consumes.
 
 ## Quick Start
 
@@ -17,110 +37,39 @@ The **Log Collector** reads `*.trajectory.jsonl` files from your OpenClaw sessio
 ```bash
 cd observability/backend
 uv sync
+cd ../frontend
+npm install
 ```
 
-### 2. Run the collector (one-shot)
+### 2. Start everything
 
 ```bash
-uv run python collector.py --once
-```
-
-### 3. Start the web server
-
-```bash
+# Terminal 1: backend (includes collector thread)
+cd observability/backend
 uv run python server.py
 # → http://127.0.0.1:8080
-```
 
-### 4. Start the frontend (separate terminal)
-
-```bash
+# Terminal 2: frontend
 cd observability/frontend
-npm install
 npm run dev
 # → http://127.0.0.1:5173
 ```
 
 Open http://127.0.0.1:5173 in your browser.
 
-## Running the Collector as a Daemon
-
-### Option A: Background process (simple)
+### Run a one-shot collection (without starting the server)
 
 ```bash
 cd observability/backend
-nohup uv run python collector.py > ~/.openclaw/observability/collector.log 2>&1 &
-echo $! > ~/.openclaw/observability/collector.pid
+uv run python -c "from collector import collect_once; collect_once()"
 ```
 
-Stop with:
+### Run smoke tests
 
 ```bash
-kill $(cat ~/.openclaw/observability/collector.pid)
-```
-
-### Option B: macOS LaunchAgent
-
-Create `~/Library/LaunchAgents/com.openclaw.observability-collector.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.openclaw.observability-collector</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/uv</string>
-        <string>run</string>
-        <string>--directory</string>
-        <string>/Users/YOU/github/openclaw-multi-agent/observability/backend</string>
-        <string>python</string>
-        <string>collector.py</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/Users/YOU/.openclaw/observability/collector.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/YOU/.openclaw/observability/collector.log</string>
-</dict>
-</plist>
-```
-
-Then:
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.openclaw.observability-collector.plist
-launchctl start com.openclaw.observability-collector
-```
-
-### Option C: systemd (Linux)
-
-```ini
-[Unit]
-Description=OpenClaw Observability Collector
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/uv run --directory /home/YOU/github/openclaw-multi-agent/observability/backend python collector.py
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=default.target
-```
-
-### Option D: Cron (simplest)
-
-```bash
-crontab -e
-# Add:
-*/5 * * * * cd /Users/YOU/github/openclaw-multi-agent/observability/backend && uv run python collector.py --once
+cd observability/backend
+source .venv/bin/activate
+python ../smoke_test.py
 ```
 
 ## User Guide
@@ -140,7 +89,7 @@ Below the cards are bar charts for top accounts (by token usage) and top agents 
 
 ### Accounts
 
-Lists WeChat accounts ranked by token usage. Click any account to see their recent messages.
+Lists accounts ranked by token usage. Click any account to see their recent messages.
 
 ### Agents
 
@@ -168,12 +117,15 @@ Each message has a timeline showing the execution path: orchestrator decision �
 | GET | /api/messages/{id} | Message detail |
 | GET | /api/messages/{id}/trace | Execution trace events |
 | POST | /api/messages/{id}/evaluate | Save evaluation scores |
+| POST | /api/seed | Insert test data (smoke tests) |
 
 ## Database
 
-The collector stores ingested data in a **DuckDB** file:
+The collector stores ingested data in a **DuckDB** file at:
 
-
+```
+~/.openclaw/observability.duckdb
+```
 
 ### Schema
 
@@ -185,21 +137,57 @@ Three tables:
 
 ### Query Directly with DuckDB CLI
 
+```bash
+# Start the server first so the collector syncs the latest trajectory data
+duckdb -readonly ~/.openclaw/observability.duckdb
+```
 
+> **Important:** Always start `server.py` first before querying with the CLI.
+> The collector runs as a thread inside the server process — it polls
+> trajectory files every 30 seconds and ingests new interactions into DuckDB.
+> Without the server running, you're querying stale data.
+>
+> Always use the `-readonly` flag when connecting while the server is running.
+> The server holds a write lock on the database, and the CLI defaults to write
+> mode which will fail with a lock conflict.
 
 ### Example Queries
 
+```sql
+-- Last 10 interactions
+SELECT timestamp, account_id, root_agent, total_tokens
+FROM interactions
+ORDER BY timestamp DESC
+LIMIT 10;
 
+-- Token usage by agent
+SELECT root_agent,
+       COUNT(*) AS requests,
+       SUM(total_tokens) AS tokens
+FROM interactions
+GROUP BY root_agent
+ORDER BY tokens DESC;
+
+-- Recent evaluations
+SELECT i.interaction_id,
+       e.correctness,
+       e.relevance,
+       e.overall
+FROM interactions i
+JOIN evaluations e ON i.interaction_id = e.interaction_id
+ORDER BY e.timestamp DESC
+LIMIT 10;
+```
 
 ### State File
 
 The collector tracks which trajectory lines it has already read in:
 
-
+```
+~/.openclaw/observability/collector_state.json
+```
 
 Delete this file to force a full re-ingestion.
-
----
 
 ## Data Source
 
@@ -216,13 +204,31 @@ The collector reads from `~/.openclaw/agents/*/sessions/*.trajectory.jsonl`. It 
 | Tables | TanStack Table |
 | Styling | Tailwind CSS |
 
----
+## Data Retention
 
-### Data Retention
+The collector automatically prunes interactions older than **7 days** on every ingest cycle. To change the retention period, edit the `retention_days` keyword in `database.py`'s `prune_old_data()` method. To keep data forever, pass `retention_days=0` (disables pruning).
 
-The collector automatically prunes interactions older than **7 days** on every ingest run
-(`--once` and daemon mode). This keeps the DuckDB file from growing unboundedly.
+## Troubleshooting
 
-To change the retention period, edit the `retention_days` argument in
-`collector.prune_old_data()`. To keep data forever, set `retention_days=0`
-(which disables pruning).
+### "Could not set lock on file"
+
+You (or another process) opened the DuckDB file without the `-readonly` flag.
+The server holds a write lock — use `duckdb -readonly ...` for ad-hoc queries.
+
+### Backend won't start
+
+Check `http://127.0.0.1:8080` — if another process is using the port, kill it:
+
+```bash
+lsof -ti :8080 | xargs kill
+```
+
+### All metrics show zero
+
+Check the server logs for errors:
+
+```bash
+tail -f /tmp/observability-server.log
+```
+
+Common causes: no trajectory files exist yet, or the collector thread is still in its first 30-second poll cycle.

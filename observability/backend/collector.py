@@ -1,37 +1,19 @@
-"""Log collector daemon: watches OpenClaw trajectory files, ingests into DuckDB.
+"""Log collector — runs as a daemon thread inside the server process.
 
-Example usagae:
+Reads OpenClaw trajectory files (*.trajectory.jsonl) and ingests parsed
+interactions into DuckDB via the shared `get_db()` singleton.
 
-# One-shot run:
-uv run python collector.py --once
-
-# Contineous run with logging to stdout:
-uv run python collector.py
-
-# Contineous run as a daemon process:
-nohup uv run python collector.py > ~/.openclaw/observability/collector.log 2>&1 &
-echo $! > ~/.openclaw/observability/collector.pid
-
-# Stop daemon with:
-kill $(cat ~/.openclaw/observability/collector.pid)
-
-Quick note on duckdb locking:
-
-  ┌────────────────┐      shared read lock      ┌──────────────────┐                                                                                                               
-  │  Server (GET)  │ ─────────────────────────→ │  observability   │                                                                                                              
-  │  (read_only)   │                            │   .duckdb        │                                                                                                              
-  └────────────────┘                            │                  │                                                                                                             
-                                                │  ↑ write lock    │                                                                                                              
-  ┌────────────────┐     exclusive write lock   │  ↓ shared read   │                                                                                                              
-  │  Collector     │  ────────────────────────→ │                  │                                                                                                             
-  │  (read_write)  │                            └──────────────────┘                                                                                                            
-  └────────────────┘
+No file locks are acquired since it shares the same process / DuckDB
+connection as the HTTP server.
 """
 
-import json, os, time, uuid, glob
+import json
+import os
+import uuid
+import glob
 from pathlib import Path
 from datetime import datetime, timezone
-from database import Database, get_db
+from database import get_db
 
 
 def _parse_ts(ts):
@@ -99,9 +81,6 @@ def _parse_session_key(session_key: str) -> tuple:
         return "unknown", "unknown", "unknown"
     parts = session_key.split(":")
     agent_id = parts[1] if len(parts) >= 2 else "unknown"
-    # parts[2] is the actual channel when it's a well-known name
-    # (e.g. "openclaw-weixin"); if it looks like a TUI session UUID
-    # (starts with "tui-") treat it as webchat.
     peer = parts[2] if len(parts) >= 3 else ""
     if peer and not peer.startswith("tui-"):
         channel = peer
@@ -111,7 +90,12 @@ def _parse_session_key(session_key: str) -> tuple:
     return agent_id, channel, account_id
 
 
-def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
+def parse_trajectory(filepath: str, state: dict) -> int:
+    """Parse a trajectory file and insert interactions into the shared DB.
+
+    Returns the number of interactions ingested.
+    """
+    db = get_db()
     last_offset = state.get(filepath, {}).get("offset", 0)
     count = 0
     try:
@@ -127,10 +111,6 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
         if session_id.endswith(".trajectory"):
             session_id = session_id.replace(".trajectory", "")
 
-        # Track the latest user-submitted message from prompt.submitted events.
-        # Each prompt.submitted immediately feeds a model.completed, but multiple
-        # model.completed events may share the same context window (e.g. thinking
-        # refinements).  We consume the tracked prompt once per model.completed.
         pending_prompt_user_msg = ""
 
         pos = f.tell()
@@ -146,8 +126,6 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
 
             event_type = event.get("type")
 
-            # Track prompt.submitted — the raw prompt text ends with the latest
-            # user input, giving us the correct per-turn user message.
             if event_type == "prompt.submitted":
                 prompt = event.get("data", {}).get("prompt", "")
                 if prompt:
@@ -163,13 +141,10 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
             usage = data.get("usage", {})
             msgs = data.get("messagesSnapshot", [])
 
-            # Extract agent, channel, account from sessionKey (not event.source)
             agent, channel, account_id = _parse_session_key(event.get("sessionKey", ""))
 
-            # user_message: prefer the tracked prompt_submitted message, then
-            # fall back to the last user role in messagesSnapshot.
             user_msg = pending_prompt_user_msg or _extract_user_msg(msgs)
-            pending_prompt_user_msg = ""  # consume once
+            pending_prompt_user_msg = ""
 
             asst_texts = data.get("assistantTexts", [])
             interaction = {
@@ -198,62 +173,23 @@ def parse_trajectory(filepath: str, db: Database, state: dict) -> int:
     return count
 
 
-def collect_once(db: Database) -> int:
+def collect_once() -> int:
+    """Run one collection pass. Returns number of interactions ingested."""
+    db = get_db()
     state = load_state()
     total = 0
     for fp in sorted(glob.glob(TRAJECTORY_GLOB)):
         try:
-            n = parse_trajectory(fp, db, state)
+            n = parse_trajectory(fp, state)
             total += n
         except Exception as e:
             print(f"Error processing {fp}: {e}")
     save_state(state)
+
+    pruned = db.prune_old_data()
+    if pruned:
+        print(f"[collector] Pruned {pruned} old interaction(s)")
+
+    if total:
+        print(f"[collector] Ingested {total} interactions at {datetime.now().isoformat()}")
     return total
-
-
-def prune_old_data(db: Database, retention_days: int = 7) -> int:
-    """Delete interactions older than retention_days. Returns count deleted."""
-    result = db.conn.execute(
-        f"DELETE FROM interactions WHERE timestamp < now() - INTERVAL '{retention_days} days'"
-    )
-    return result.rowcount
-
-
-def run_loop() -> None:
-    print(f"[collector] Started. Polling every {POLL_INTERVAL}s...")
-    while True:
-        db = Database(read_only=False)
-        try:
-            n = collect_once(db)
-            pruned = prune_old_data(db)
-        finally:
-            db.close()
-        if pruned > 0:
-            print(f"[collector] Pruned {pruned} old interaction(s)")
-        if n:
-            print(f"[collector] Ingested {n} interactions at {datetime.now().isoformat()}")
-        time.sleep(POLL_INTERVAL)
-
-
-def main() -> None:
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--reset":
-        db_path = Path("~/.openclaw/observability.duckdb").expanduser()
-        if db_path.exists():
-            db_path.unlink()
-        if STATE_FILE.exists():
-            STATE_FILE.unlink()
-        print("Reset: deleted database and state file")
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        db = get_db()
-        n = collect_once(db)
-        print(f"Ingested {n} interaction(s)")
-    elif len(sys.argv) > 1 and sys.argv[1] == "--reset":
-        pass  # already handled above
-    else:
-        run_loop()
-
-
-if __name__ == "__main__":
-    main()

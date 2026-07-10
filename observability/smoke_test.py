@@ -11,14 +11,11 @@ Requirements: fastapi, uvicorn[standard], duckdb, httpx, pydantic
 from __future__ import annotations
 
 import os
-import shutil
 import signal
 import subprocess
 import sys
 import time
-import uuid
 from pathlib import Path
-from datetime import datetime, timezone
 
 import httpx
 
@@ -108,7 +105,7 @@ def stop(proc: subprocess.Popen) -> None:
 
 
 def seed_if_empty(python_cmd: str) -> str | None:
-    """Insert one test record if the database is empty.
+    """Insert one test record via the API if the database is empty.
 
     Returns the seeded interaction_id, or None if the DB already had data.
     """
@@ -116,53 +113,10 @@ def seed_if_empty(python_cmd: str) -> str | None:
     if r.status_code == 200 and len(r.json()) > 0:
         return None
 
-    print("  [seed] Database empty — inserting one test record …")
-    seed_id = str(uuid.uuid4())
-    tmp = BACKEND_DIR / ".smoke_seed.py"
-    tmp.write_text('''"""Seed helper for smoke_test.py."""
-from database import Database as TmpDB
-db = TmpDB(read_only=False)
-import uuid
-from datetime import datetime, timezone
-now = datetime.now(timezone.utc)
-seed_id = "''' + seed_id + '''"
-db.insert_interaction({
-    "interaction_id": seed_id,
-    "timestamp": now,
-    "channel": "webchat",
-    "account_id": "smoke-test-user",
-    "session_id": "smoke-session",
-    "user_message": "Hello from smoke test",
-    "assistant_response": "Hi! How can I help?",
-    "root_agent": "smoke-test-agent",
-    "agents_involved": ["smoke-test-agent"],
-    "input_tokens": 10,
-    "output_tokens": 20,
-    "total_tokens": 30,
-    "reasoning_tokens": 0,
-    "latency_ms": 123,
-    "status": "ok",
-    "trace_file": "/dev/null",
-    "trace_offset": 0,
-})
-db.insert_trace_event({
-    "id": 1,
-    "interaction_id": seed_id,
-    "seq": 1,
-    "ts": int(now.timestamp() * 1000),
-    "agent": "smoke-test-agent",
-    "event_type": "model.completed",
-    "detail": {"model": "deepseek/deepseek-v4-flash"},
-})
-db.close()
-''')
-    subprocess.run(
-        python_cmd.split() + [str(tmp)],
-        cwd=BACKEND_DIR,
-        capture_output=True,
-    )
-    tmp.unlink()
-    return seed_id
+    print("  [seed] Database empty — inserting one test record via /api/seed …")
+    r = httpx.post(f"{BASE_URL}/api/seed", timeout=5)
+    assert r.status_code == 200, f"seed failed: {r.status_code} {r.text}"
+    return r.json().get("interaction_id")
 
 
 # ── Test runner ───────────────────────────────────────────────────────

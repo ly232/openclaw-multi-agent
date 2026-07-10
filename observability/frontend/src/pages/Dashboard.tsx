@@ -13,8 +13,8 @@ export default function Dashboard() {
   const [ag, setAg] = useState<AgentsResponse | null>(null)
 
   useEffect(() => { getSummary().then(setS) }, [])
-  useEffect(() => { getAccounts(5).then(setAccts) }, [])
-  useEffect(() => { getAgents().then(setAg) }, [])
+  useEffect(() => { getAccounts(5).then(v => setAccts(v ?? [])) }, [])
+  useEffect(() => { getAgents().then(v => setAg(v ?? { agents: [], metrics: [] })) }, [])
 
   const cards = [
     { title: "Interactions", value: s?.interactions ?? "-", icon: Activity },
