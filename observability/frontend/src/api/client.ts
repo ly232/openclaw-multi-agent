@@ -98,3 +98,12 @@ export function getTrace(id: string) { return get<TraceEvent[]>(`/messages/${id}
 export function postEvaluation(id: string, scores: { correctness: number; relevance: number; completeness: number; clarity: number; overall: number }) {
   return post<{ ok: boolean }>(`/messages/${id}/evaluate`, scores)
 }
+
+export interface QueryResult {
+  columns: string[]
+  rows: (string | number | boolean | null)[][]
+  error: string | null
+}
+export function postQuery(sql: string) {
+  return post<QueryResult>("/query", { sql })
+}

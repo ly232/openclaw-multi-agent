@@ -108,6 +108,49 @@ def get_trace(message_id: str):
     return dicts(TRACE_EVENTS, message_id)
 
 
+class QueryRequest(BaseModel):
+    sql: str
+
+
+@app.post("/api/query")
+def run_query(req: QueryRequest):
+    """Execute arbitrary SQL and return results as columns + rows."""
+    sql = req.sql.strip()
+    if not sql:
+        return {"columns": [], "rows": [], "error": None}
+    db = get_request_db()
+    try:
+        cur = db.conn.execute(sql)
+        cols = [cur.description[i][0] for i in range(len(cur.description))]
+        raw_rows = cur.fetchall()
+        # Convert to Python-native types for JSON serialization
+        rows = [[_json_safe(v) for v in r] for r in raw_rows]
+        return {"columns": cols, "rows": rows, "error": None}
+    except Exception as e:
+        logger.exception("Query failed: %s", sql)
+        return {"columns": [], "rows": [], "error": str(e)}
+    finally:
+        db.close()
+
+
+def _json_safe(v):
+    """Convert DuckDB values to JSON-safe Python types."""
+    import datetime
+    if isinstance(v, datetime.datetime):
+        return v.isoformat()
+    if isinstance(v, datetime.date):
+        return v.isoformat()
+    if isinstance(v, datetime.timedelta):
+        return str(v)
+    if isinstance(v, bytes):
+        return v.hex()
+    if isinstance(v, memoryview):
+        return bytes(v).hex()
+    if hasattr(v, "item"):
+        return v.item()
+    return v
+
+
 class EvalRequest(BaseModel):
     correctness: int
     relevance: int

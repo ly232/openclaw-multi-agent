@@ -1,11 +1,12 @@
 import { Routes, Route, NavLink } from "react-router-dom"
-import { LayoutDashboard, Users, Bot, MessageSquare, BarChart3 } from "lucide-react"
+import { LayoutDashboard, Users, Bot, MessageSquare, BarChart3, Database } from "lucide-react"
 import { cn } from "./lib/utils"
 import Dashboard from "./pages/Dashboard"
 import Accounts from "./pages/Accounts"
 import Agents from "./pages/Agents"
 import Messages from "./pages/Messages"
 import Evaluations from "./pages/Evaluations"
+import DuckDB from "./pages/DuckDB"
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -13,6 +14,7 @@ const nav = [
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/messages", label: "Messages", icon: MessageSquare },
   { to: "/evaluations", label: "Evaluations", icon: BarChart3 },
+  { to: "/duckdb", label: "DuckDB", icon: Database },
 ]
 
 export default function App() {
@@ -47,6 +49,7 @@ export default function App() {
           <Route path="/messages" element={<Messages />} />
           <Route path="/messages/:id" element={<Messages />} />
           <Route path="/evaluations" element={<Evaluations />} />
+          <Route path="/duckdb" element={<DuckDB />} />
         </Routes>
       </main>
     </div>

@@ -107,11 +107,18 @@ TRACE_EVENTS = "SELECT * FROM trace_events WHERE interaction_id = ? ORDER BY seq
 class Database:
     def __init__(self, path: str = "~/.openclaw/observability.duckdb", read_only: bool | None = None):
         self._path = path
+        self._read_only = read_only
         self._lock = threading.Lock()
         self._conn: duckdb.DuckDBPyConnection | None = None
 
-    def open(self, retries: int = 3, base_delay: float = 0.1) -> None:
-        """Open connection. Retries on lock conflict."""
+    def open(self, retries: int = 3, base_delay: float = 0.1, skip_schema: bool = False) -> None:
+        """Open connection. Retries on lock conflict.
+
+        Args:
+            skip_schema: If True, skip DDL (CREATE TABLE/INDEX) statements.
+                Use for read-only request connections where the schema is
+                already guaranteed to exist from the collector's write connection.
+        """
         if self._conn is not None:
             return
         with self._lock:
@@ -120,13 +127,14 @@ class Database:
             last_exc = None
             for attempt in range(retries):
                 try:
-                    self._conn = duckdb.connect(str(self._path), read_only=False)
-                    for stmt in SCHEMA_SQL.split(";"):
-                        s = stmt.strip()
-                        if s:
-                            self._conn.execute(s)
+                    self._conn = duckdb.connect(str(self._path), read_only=self._read_only or False)
+                    if not skip_schema:
+                        for stmt in SCHEMA_SQL.split(";"):
+                            s = stmt.strip()
+                            if s:
+                                self._conn.execute(s)
                     return
-                except duckdb.IOException as e:
+                except (duckdb.IOException, duckdb.TransactionException) as e:
                     last_exc = e
                     if attempt < retries - 1:
                         time.sleep(base_delay * (attempt + 1))
@@ -198,9 +206,19 @@ class Database:
              row.get("completeness"), row.get("clarity"), row.get("overall")),
         )
 
-    def prune_old_data(self, retention_days: int = 7) -> int:
+    def prune_old_data(self, retention_days: int = 30) -> int:
+        cutoff = f"now() - INTERVAL '{retention_days} days'"
+        # Delete child rows first to avoid FK issues, then prune interactions.
+        self.conn.execute(
+            f"DELETE FROM trace_events WHERE interaction_id IN "
+            f"(SELECT interaction_id FROM interactions WHERE timestamp < {cutoff})"
+        )
+        self.conn.execute(
+            f"DELETE FROM evaluations WHERE interaction_id IN "
+            f"(SELECT interaction_id FROM interactions WHERE timestamp < {cutoff})"
+        )
         result = self.conn.execute(
-            f"DELETE FROM interactions WHERE timestamp < now() - INTERVAL '{retention_days} days'"
+            f"DELETE FROM interactions WHERE timestamp < {cutoff}"
         )
         return result.rowcount
 
@@ -225,9 +243,13 @@ def get_request_db() -> Database:
 
     Each call opens a new connection, so concurrent requests don't
     share cursor state.  The caller MUST close() after use.
+
+    Opens in write mode (same configuration as the collector's long-lived
+    connection — DuckDB won't allow mixed read-only/read-write in the same
+    process) but skips schema DDL to avoid write-write conflicts.
     """
-    db = Database()
-    db.open()
+    db = Database(read_only=False)
+    db.open(skip_schema=True)
     return db
 
 
