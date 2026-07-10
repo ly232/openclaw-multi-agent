@@ -1,20 +1,43 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   getAccounts, getAgents, getSummary,
   Summary, AccountRow, AgentsResponse,
 } from "../api/client"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
-import { Activity, DollarSign, AlertTriangle, Zap, Users, Bot } from "lucide-react"
+import { Activity, DollarSign, AlertTriangle, Zap, Users, Bot, RefreshCw } from "lucide-react"
+
+const POLL_MS = 15_000
 
 export default function Dashboard() {
   const [s, setS] = useState<Summary | null>(null)
   const [accts, setAccts] = useState<AccountRow[]>([])
   const [ag, setAg] = useState<AgentsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const mounted = useRef(true)
 
-  useEffect(() => { getSummary().then(setS) }, [])
-  useEffect(() => { getAccounts(5).then(v => setAccts(v ?? [])) }, [])
-  useEffect(() => { getAgents().then(v => setAg(v ?? { agents: [], metrics: [] })) }, [])
+  useEffect(() => {
+    const fetch = () => {
+      setLoading(true)
+      Promise.all([
+        getSummary(),
+        getAccounts(5),
+        getAgents(),
+      ]).then(([summary, accounts, agents]) => {
+        if (!mounted.current) return
+        if (summary !== null) setS(summary)
+        setAccts(accounts ?? [])
+        setAg(agents ?? { agents: [], metrics: [] })
+        setLoading(false)
+      })
+    }
+    fetch()
+    const interval = setInterval(fetch, POLL_MS)
+    return () => {
+      mounted.current = false
+      clearInterval(interval)
+    }
+  }, [])
 
   const cards = [
     { title: "Interactions", value: s?.interactions ?? "-", icon: Activity },
@@ -27,7 +50,10 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Dashboard</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-2xl font-bold">Dashboard</h2>
+        {loading && <RefreshCw size={16} className="animate-spin text-gray-400" />}
+      </div>
       <div className="grid grid-cols-3 gap-4">
         {cards.map(c => (
           <Card key={c.title}>
