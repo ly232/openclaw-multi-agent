@@ -5,7 +5,7 @@ import {
 } from "../api/client"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
-import { Activity, DollarSign, AlertTriangle, Zap, Users, Bot, RefreshCw } from "lucide-react"
+import { Activity, DollarSign, AlertTriangle, Zap, Users, Bot, RefreshCw, Wifi, WifiOff } from "lucide-react"
 
 const POLL_MS = 15_000
 
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [accts, setAccts] = useState<AccountRow[]>([])
   const [ag, setAg] = useState<AgentsResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connected, setConnected] = useState(true)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -28,7 +29,12 @@ export default function Dashboard() {
         getAgents(),
       ]).then(([summary, accounts, agents]) => {
         if (!mounted.current) return
-        if (summary !== null) setS(summary)
+        if (summary && typeof summary.interactions === 'number') {
+          setS(summary)
+          setConnected(true)
+        } else {
+          setConnected(false)
+        }
         setAccts(accounts ?? [])
         setAg(agents ?? { agents: [], metrics: [] })
         setLoading(false)
@@ -56,6 +62,10 @@ export default function Dashboard() {
       <div className="flex items-center gap-2">
         <h2 className="text-2xl font-bold">Dashboard</h2>
         {loading && <RefreshCw size={16} className="animate-spin text-gray-400" />}
+        {!loading && (connected
+          ? <Wifi size={14} className="text-green-500" />
+          : <WifiOff size={14} className="text-red-500" />
+        )}
       </div>
       <div className="grid grid-cols-3 gap-4">
         {cards.map(c => (
