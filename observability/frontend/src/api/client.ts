@@ -65,10 +65,10 @@ export interface Summary {
   interactions: number; total_tokens: number; reasoning_tokens: number;
   avg_latency_ms: number; est_cost_usd: number; failures: number; multi_agent_pct: number;
 }
-export function getSummary() { return get<Summary>("/dashboard/summary") }
+export function getSummary(days = 7) { return get<Summary>(`/dashboard/summary?days=${days}`) }
 
 export interface AccountRow { account_id: string; messages: number; tokens: number; cost: number }
-export function getAccounts(limit = 10) { return get<AccountRow[]>(`/accounts?limit=${limit}`) }
+export function getAccounts(limit = 10, days = 7) { return get<AccountRow[]>(`/accounts?limit=${limit}&days=${days}`) }
 
 export interface MsgRow { timestamp: string; user_message: string; agent: string; tokens: number; account_id?: string }
 export function getAccountMessages(id: string, limit = 10, offset = 0) {
@@ -78,7 +78,7 @@ export function getAccountMessages(id: string, limit = 10, offset = 0) {
 export interface AgentRow { agent: string; requests: number; tokens: number; avg_latency_ms: number }
 export interface AgentMetrics { agent: string; requests: number; avg_tokens: number; avg_latency_ms: number }
 export interface AgentsResponse { agents: AgentRow[]; metrics: AgentMetrics[] }
-export function getAgents(limit = 10) { return get<AgentsResponse>(`/agents?limit=${limit}`) }
+export function getAgents(limit = 10, days = 7) { return get<AgentsResponse>(`/agents?limit=${limit}&days=${days}`) }
 
 export function getAgentInteractions(id: string, limit = 10, offset = 0) {
   return get<MsgRow[]>(`/agents/${id}/interactions?limit=${limit}&offset=${offset}`)

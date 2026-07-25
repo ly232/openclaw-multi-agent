@@ -13,8 +13,8 @@ import time
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from database import get_db, get_request_db, close_db, SUMMARY_7D, TOP_ACCOUNTS, TOP_AGENTS, \
-    ACCOUNT_MESSAGES, AGENT_INTERACTIONS, AGENT_METRICS, MESSAGE_BY_ID, TRACE_EVENTS
+from database import get_db, get_request_db, close_db, summary, top_accounts, top_agents, \
+    agent_metrics, ACCOUNT_MESSAGES, AGENT_INTERACTIONS, MESSAGE_BY_ID, TRACE_EVENTS
 from collector import collect_once, POLL_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -72,14 +72,14 @@ def dicts(sql: str, *params):
 
 
 @app.get("/api/dashboard/summary")
-def dashboard_summary():
-    rows = dicts(SUMMARY_7D)
+def dashboard_summary(days: int = Query(7, ge=1, le=31)):
+    rows = dicts(summary(days), days)
     return rows[0] if rows else {}
 
 
 @app.get("/api/accounts")
-def list_accounts(limit: int = Query(10, ge=1, le=100)):
-    return dicts(TOP_ACCOUNTS, limit)
+def list_accounts(limit: int = Query(10, ge=1, le=100), days: int = Query(7, ge=1, le=31)):
+    return dicts(top_accounts(days), days, limit)
 
 
 @app.get("/api/accounts/{account_id}/messages")
@@ -88,8 +88,8 @@ def account_messages(account_id: str, limit: int = Query(10, ge=1, le=100), offs
 
 
 @app.get("/api/agents")
-def list_agents(limit: int = Query(10, ge=1, le=100)):
-    return {"agents": dicts(TOP_AGENTS, limit), "metrics": dicts(AGENT_METRICS)}
+def list_agents(limit: int = Query(10, ge=1, le=100), days: int = Query(7, ge=1, le=31)):
+    return {"agents": dicts(top_agents(days), days, limit), "metrics": dicts(agent_metrics(days), days)}
 
 
 @app.get("/api/agents/{agent_id}/interactions")
