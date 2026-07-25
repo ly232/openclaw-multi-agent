@@ -73,22 +73,22 @@ BASE_SUMMARY = """SELECT COUNT(*) AS interactions,
     COUNT(*) FILTER (WHERE status != 'ok') AS failures,
     COALESCE(100.0 * COUNT(*) FILTER (WHERE agents_involved IS NOT NULL
         AND json_array_length(agents_involved) > 1) / NULLIF(COUNT(*), 0), 0) AS multi_agent_pct
-FROM interactions WHERE timestamp >= now() - INTERVAL ? DAY"""
+FROM interactions WHERE timestamp >= now() - INTERVAL '{days}' DAY"""
 
 BASE_TOP_ACCOUNTS = """SELECT account_id, COUNT(*) AS messages,
     SUM(total_tokens) AS tokens,
     SUM(total_tokens) * 0.00000014 + SUM(output_tokens) * 0.00000028 AS cost
-FROM interactions WHERE timestamp >= now() - INTERVAL ? DAY
+FROM interactions WHERE timestamp >= now() - INTERVAL '{days}' DAY
 GROUP BY account_id ORDER BY tokens DESC LIMIT ?"""
 
 BASE_TOP_AGENTS = """SELECT root_agent AS agent, COUNT(*) AS requests,
     SUM(total_tokens) AS tokens, AVG(latency_ms)::BIGINT AS avg_latency_ms
-FROM interactions WHERE timestamp >= now() - INTERVAL ? DAY
+FROM interactions WHERE timestamp >= now() - INTERVAL '{days}' DAY
 GROUP BY root_agent ORDER BY requests DESC LIMIT ?"""
 
 BASE_AGENT_METRICS = """SELECT root_agent AS agent, COUNT(*) AS requests,
     AVG(total_tokens)::BIGINT AS avg_tokens, AVG(latency_ms)::BIGINT AS avg_latency_ms
-FROM interactions WHERE timestamp >= now() - INTERVAL ? DAY
+FROM interactions WHERE timestamp >= now() - INTERVAL '{days}' DAY
 GROUP BY root_agent ORDER BY requests DESC"""
 
 ACCOUNT_MESSAGES = """SELECT timestamp, user_message, root_agent AS agent, total_tokens AS tokens
@@ -102,23 +102,23 @@ ORDER BY timestamp DESC LIMIT ? OFFSET ?"""
 
 
 def summary(days: int = 7) -> str:
-    """Return parameterised summary SQL with INTERVAL ? DAY placeholder."""
-    return BASE_SUMMARY
+    """Return summary SQL with INTERVAL '{days}' DAY interpolated."""
+    return BASE_SUMMARY.format(days=days)
 
 
 def top_accounts(days: int = 7) -> str:
-    """Return parameterised top-accounts SQL with INTERVAL ? DAY placeholder."""
-    return BASE_TOP_ACCOUNTS
+    """Return top-accounts SQL with INTERVAL '{days}' DAY interpolated."""
+    return BASE_TOP_ACCOUNTS.format(days=days)
 
 
 def top_agents(days: int = 7) -> str:
-    """Return parameterised top-agents SQL with INTERVAL ? DAY placeholder."""
-    return BASE_TOP_AGENTS
+    """Return top-agents SQL with INTERVAL '{days}' DAY interpolated."""
+    return BASE_TOP_AGENTS.format(days=days)
 
 
 def agent_metrics(days: int = 7) -> str:
-    """Return parameterised agent-metrics SQL with INTERVAL ? DAY placeholder."""
-    return BASE_AGENT_METRICS
+    """Return agent-metrics SQL with INTERVAL '{days}' DAY interpolated."""
+    return BASE_AGENT_METRICS.format(days=days)
 
 MESSAGE_BY_ID = "SELECT * FROM interactions WHERE interaction_id = ?"
 TRACE_EVENTS = "SELECT * FROM trace_events WHERE interaction_id = ? ORDER BY seq"

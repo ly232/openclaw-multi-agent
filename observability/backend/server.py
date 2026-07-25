@@ -73,13 +73,13 @@ def dicts(sql: str, *params):
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary(days: int = Query(7, ge=1, le=31)):
-    rows = dicts(summary(days), days)
+    rows = dicts(summary(days))
     return rows[0] if rows else {}
 
 
 @app.get("/api/accounts")
 def list_accounts(limit: int = Query(10, ge=1, le=100), days: int = Query(7, ge=1, le=31)):
-    return dicts(top_accounts(days), days, limit)
+    return dicts(top_accounts(days), limit)
 
 
 @app.get("/api/accounts/{account_id}/messages")
@@ -89,7 +89,7 @@ def account_messages(account_id: str, limit: int = Query(10, ge=1, le=100), offs
 
 @app.get("/api/agents")
 def list_agents(limit: int = Query(10, ge=1, le=100), days: int = Query(7, ge=1, le=31)):
-    return {"agents": dicts(top_agents(days), days, limit), "metrics": dicts(agent_metrics(days), days)}
+    return {"agents": dicts(top_agents(days), limit), "metrics": dicts(agent_metrics(days))}
 
 
 @app.get("/api/agents/{agent_id}/interactions")
